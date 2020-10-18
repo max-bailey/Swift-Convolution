@@ -1,6 +1,9 @@
 import Foundation
 import Accelerate
+import Darwin
+import Dispatch
 
+/* Frequency-domain convolution */
 func convolve(inputAudio: [Float], impulse: [Float]) -> [Float] {
     
     /* Convolve the two discrete-time signals */
@@ -48,3 +51,87 @@ func convolve(inputAudio: [Float], impulse: [Float]) -> [Float] {
     
     return convolvedOutput
 }
+
+/* FFT */
+// From https://gist.github.com/jeremycochoy/45346cbfe507ee9cb96a08c049dfd34f
+func fft(input: [Float]) -> ([Float], [Float]) {
+    
+    // The length of the input
+    let length = vDSP_Length(input.count)
+    
+    // The power of two of two times the length of the input
+    let log2n = vDSP_Length(ceil(log2(Float(length * 2))))
+    
+    // Create the instance of the FFT class which allows computing FFT of complex vector with length up to 'length'
+    let fftSetup = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self)!
+    
+    // Input + output arrays
+    var forwardInputReal = [Float](input) // Copy the signal
+    var forwardInputImag = [Float](repeating: 0, count: Int(length))
+    var forwardOutputReal = [Float](repeating: 0, count: Int(length))
+    var forwardOutputImag = [Float](repeating: 0, count: Int(length))
+    //var magnitudes = [Float](repeating: 0, count: Int(length)) // Magnitude of each frequency bin
+    
+    // Compute FFT
+    forwardInputReal.withUnsafeMutableBufferPointer { forwardInputRealPtr in
+        forwardInputImag.withUnsafeMutableBufferPointer { forwardInputImagPtr in
+            forwardOutputReal.withUnsafeMutableBufferPointer { forwardOutputRealPtr in
+                forwardOutputImag.withUnsafeMutableBufferPointer { forwardOutputImagPtr in
+                    // Input
+                    let forwardInput = DSPSplitComplex(realp: forwardInputRealPtr.baseAddress!, imagp: forwardInputImagPtr.baseAddress!)
+                    // Output
+                    var forwardOutput = DSPSplitComplex(realp: forwardOutputRealPtr.baseAddress!, imagp: forwardOutputImagPtr.baseAddress!)
+                    
+                    fftSetup.forward(input: forwardInput, output: &forwardOutput) // Call to the fft
+                    //vDSP.absolute(forwardOutput, result: &magnitudes) // Compute the magitude of each frequency bin
+                }
+            }
+        }
+    }
+    
+    return (forwardOutputReal, forwardOutputImag)
+}
+
+func ifft(real: [Float], imaginary: [Float]) -> [Float] {
+    
+    // The length of the input
+    var length: vDSP_Length!
+    if real.count == imaginary.count {
+        length = vDSP_Length(real.count)
+    } else {
+        fatalError("Real and imaginary signals are not equal length.\n")
+    }
+    
+    // The power of two of two times the length of the input
+    let log2n = vDSP_Length(ceil(log2(Float(length * 2))))
+    
+    // Create the instance of the FFT class which allows computing FFT of complex vector with length up to 'length'
+    let fftSetup = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self)!
+    
+    // Input + output arrays
+    var forwardInputReal = [Float](real) // Copy the signal
+    var forwardInputImag = [Float](imaginary)
+    var forwardOutputReal = [Float](repeating: 0, count: Int(length))
+    var forwardOutputImag = [Float](repeating: 0, count: Int(length))
+    var magnitudes = [Float](repeating: 0, count: Int(length)) // Magnitude of each frequency bin
+    
+    // Compute FFT
+    forwardInputReal.withUnsafeMutableBufferPointer { forwardInputRealPtr in
+        forwardInputImag.withUnsafeMutableBufferPointer { forwardInputImagPtr in
+            forwardOutputReal.withUnsafeMutableBufferPointer { forwardOutputRealPtr in
+                forwardOutputImag.withUnsafeMutableBufferPointer { forwardOutputImagPtr in
+                    // Input
+                    let forwardInput = DSPSplitComplex(realp: forwardInputRealPtr.baseAddress!, imagp: forwardInputImagPtr.baseAddress!)
+                    // Output
+                    var forwardOutput = DSPSplitComplex(realp: forwardOutputRealPtr.baseAddress!, imagp: forwardOutputImagPtr.baseAddress!)
+                    
+                    fftSetup.inverse(input: forwardInput, output: &forwardOutput) // Call to the fft
+                    vDSP.absolute(forwardOutput, result: &magnitudes) // Compute the magitude of each frequency bin
+                }
+            }
+        }
+    }
+    
+    return forwardOutputReal
+}
+
